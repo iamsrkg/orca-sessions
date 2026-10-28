@@ -1,189 +1,56 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { ChevronRight, FolderPlus, History, RefreshCw } from 'lucide-react'
-import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { buildAiVaultResumeStartupForWorktree } from '@/lib/ai-vault-resume-command'
-import { launchAiVaultSessionAndReveal } from '@/lib/launch-ai-vault-session-and-reveal'
-import {
-  dropDeletedRemoteResumeCwd,
-  prepareAiVaultSessionForTerminalResume
-} from '@/lib/ai-vault-session-resume-preparation'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import {
-  formatSessionCost,
-  formatSessionWorkingTime
-} from '../../../../shared/claude-session-numbers'
 import { AddHistoryProjectsDialog } from './AddHistoryProjectsDialog'
-import { useClaudeSessionNumbers } from './claude-session-numbers-store'
-import { groupPastChats, normalizePath, type PastChatGroup } from './past-chat-groups'
+import { normalizePath } from './past-chat-groups'
+import { reloadPastChats, usePastChats } from './past-chats-store'
+import { PastChatRows } from './PastChatRows'
+import { usePastChatAssignment } from './use-past-chat-assignment'
 
-const STORE_KEY = 'orca-sessions.pastChats.expanded'
-const readExpanded = (): string[] => {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]')
-    return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : []
-  } catch {
-    return []
-  }
+const OPEN_KEY = 'orca-sessions.otherChats.open'
+
+function folderLabel(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts.slice(-2).join('/') || path
 }
 
-function ago(iso: string | null): string {
-  const time = iso ? Date.parse(iso) : Number.NaN
-  if (!Number.isFinite(time)) {
-    return ''
-  }
-  const minutes = Math.round((Date.now() - time) / 60_000)
-  if (minutes < 60) {
-    return `${Math.max(1, minutes)}m ago`
-  }
-  const hours = Math.round(minutes / 60)
-  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
-}
-
-async function resumePastChat(session: AiVaultSession, worktreeId: string | null): Promise<void> {
-  const target = worktreeId ?? useAppStore.getState().activeWorktreeId
-  if (!target) {
-    toast.message('Add or open a project first', {
-      description: 'A chat resumes inside a workspace; it still runs in its own folder.'
-    })
-    return
-  }
-  try {
-    const prepared = await dropDeletedRemoteResumeCwd(
-      await prepareAiVaultSessionForTerminalResume(session)
-    )
-    const startup = buildAiVaultResumeStartupForWorktree({
-      state: useAppStore.getState(),
-      worktreeId: target,
-      session: prepared
-    })
-    await launchAiVaultSessionAndReveal(
-      { agent: session.agent, worktreeId: target, ...startup },
-      (m) => m
-    )
-  } catch (error) {
-    toast.error('Could not resume this chat', {
-      description: error instanceof Error ? error.message : String(error)
-    })
-  }
-}
-
-const PastChatRow = React.memo(function PastChatRow({
-  session,
-  worktreeId
-}: {
-  session: AiVaultSession
-  worktreeId: string | null
-}): React.JSX.Element {
-  const numbers = useClaudeSessionNumbers(session.agent === 'claude' ? session.filePath : undefined)
-  const cost = formatSessionCost(numbers?.costUsd ?? null)
-  const meta = [
-    ago(session.updatedAt ?? session.modifiedAt),
-    cost ? `≈${cost}` : null,
-    numbers ? formatSessionWorkingTime(numbers.workingMs) : null,
-    session.branch && !/^(main|master)$/.test(session.branch) ? session.branch : null
-  ].filter(Boolean)
-  return (
-    <button
-      type="button"
-      onClick={() => void resumePastChat(session, worktreeId)}
-      title={`${session.title}\n${session.cwd ?? ''}\nClick to resume`}
-      className="block w-full rounded-sm px-2 py-1 text-left hover:bg-worktree-sidebar-accent"
-    >
-      <span className="block truncate text-[12px] text-foreground">
-        {session.title || 'Untitled chat'}
-      </span>
-      <span className="block truncate text-[10px] text-muted-foreground tabular-nums">
-        {meta.join(' · ')}
-      </span>
-    </button>
-  )
-})
-
-function GroupBlock({
-  group,
-  expanded,
-  onToggle
-}: {
-  group: PastChatGroup
-  expanded: boolean
-  onToggle: () => void
-}): React.JSX.Element {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-1 rounded-sm px-1.5 py-1 text-left text-[12px] hover:bg-worktree-sidebar-accent"
-        title={group.folder ?? undefined}
-      >
-        <ChevronRight
-          className={cn(
-            'size-3.5 shrink-0 text-muted-foreground transition-transform',
-            expanded && 'rotate-90'
-          )}
-        />
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            group.isProject ? 'font-medium text-foreground' : 'text-muted-foreground'
-          )}
-        >
-          {group.label}
-        </span>
-        <span className="text-2xs text-muted-foreground tabular-nums">{group.sessions.length}</span>
-      </button>
-      {expanded ? (
-        <div className="pl-4">
-          {group.sessions.map((session) => (
-            <PastChatRow key={session.id} session={session} worktreeId={group.worktreeId} />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/** Left panel: every past chat grouped by project (like Claude Sessions' History), click to resume. */
+/** Left panel bottom: chats outside every project, grouped by folder. Project chats show under their workspace. */
 export function PastChatsSection(): React.JSX.Element | null {
   const repos = useAppStore((s) => s.repos)
-  const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
-  const [sessions, setSessions] = useState<AiVaultSession[] | null>(null)
-  const [open, setOpen] = useState(() => localStorage.getItem(`${STORE_KEY}.open`) !== '0')
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(readExpanded()))
+  const { sessions } = usePastChats()
+  const view = usePastChatAssignment()
+  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== '0')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  const load = useCallback(async (force: boolean) => {
-    setLoading(true)
-    try {
-      const result = await window.api.aiVault.listSessions({ limit: 500, force })
-      if (!result.cancelled) {
-        setSessions(result.sessions.filter((s) => !s.structuredSession))
-      }
-    } finally {
-      setLoading(false)
+  const groups = useMemo(() => {
+    const map = new Map<string, { label: string; folder: string; sessions: AiVaultSession[] }>()
+    for (const session of view.others) {
+      const folder = session.cwd ?? 'Unknown folder'
+      const key = normalizePath(folder)
+      const group = map.get(key) ?? { label: folderLabel(folder), folder, sessions: [] }
+      group.sessions.push(session)
+      map.set(key, group)
     }
-  }, [])
-  useEffect(() => {
-    void load(false)
-    return window.api.aiVault.onWindowFocused(() => void load(false))
-  }, [load])
-
-  const groups = useMemo(
-    () => (sessions ? groupPastChats(sessions, repos, worktreesByRepo) : []),
-    [sessions, repos, worktreesByRepo]
-  )
+    return [...map.entries()]
+  }, [view.others])
   const cwds = useMemo(
     () => [...new Set((sessions ?? []).map((s) => s.cwd).filter((c): c is string => Boolean(c)))],
     [sessions]
   )
   const knownPaths = useMemo(() => new Set(repos.map((r) => normalizePath(r.path))), [repos])
 
+  const refresh = async (): Promise<void> => {
+    setLoading(true)
+    await reloadPastChats(true)
+    setLoading(false)
+  }
   const toggleOpen = (): void => {
     setOpen(!open)
-    localStorage.setItem(`${STORE_KEY}.open`, open ? '0' : '1')
+    localStorage.setItem(OPEN_KEY, open ? '0' : '1')
   }
   const toggleGroup = (key: string): void => {
     const next = new Set(expanded)
@@ -193,26 +60,26 @@ export function PastChatsSection(): React.JSX.Element | null {
       next.add(key)
     }
     setExpanded(next)
-    localStorage.setItem(STORE_KEY, JSON.stringify([...next]))
   }
 
   return (
     <div
       className={cn(
         'flex shrink-0 flex-col border-t border-worktree-sidebar-border',
-        open && 'max-h-[45%] min-h-24'
+        open && 'max-h-[40%]'
       )}
     >
       <div className="flex h-8 shrink-0 items-center gap-1 px-2">
         <button
           type="button"
           onClick={toggleOpen}
+          title="Chats from folders that are not projects (project chats show under their workspace)"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-medium text-muted-foreground hover:text-foreground"
         >
           <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
           <History className="size-3.5" />
-          Past chats
-          <span className="text-2xs tabular-nums">{sessions ? sessions.length : ''}</span>
+          Other chats
+          <span className="text-2xs tabular-nums">{view.loaded ? view.others.length : ''}</span>
         </button>
         <button
           type="button"
@@ -225,9 +92,9 @@ export function PastChatsSection(): React.JSX.Element | null {
         </button>
         <button
           type="button"
-          title="Refresh past chats"
-          aria-label="Refresh past chats"
-          onClick={() => void load(true)}
+          title="Refresh chats"
+          aria-label="Refresh chats"
+          onClick={() => void refresh()}
           disabled={loading}
           className="rounded-sm p-1 text-muted-foreground hover:bg-worktree-sidebar-accent hover:text-foreground"
         >
@@ -238,18 +105,40 @@ export function PastChatsSection(): React.JSX.Element | null {
       </div>
       {open ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 scrollbar-sleek">
-          {!sessions ? (
+          {!view.loaded ? (
             <p className="px-2 py-1 text-2xs text-muted-foreground">Reading your chat history…</p>
           ) : groups.length === 0 ? (
-            <p className="px-2 py-1 text-2xs text-muted-foreground">No past chats found.</p>
+            <p className="px-2 py-1 text-2xs text-muted-foreground">
+              Every chat belongs to a project.
+            </p>
           ) : (
-            groups.map((group) => (
-              <GroupBlock
-                key={group.key}
-                group={group}
-                expanded={expanded.has(group.key)}
-                onToggle={() => toggleGroup(group.key)}
-              />
+            groups.map(([key, group]) => (
+              <div key={key}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(key)}
+                  title={group.folder}
+                  className="flex w-full items-center gap-1 rounded-sm px-1.5 py-1 text-left text-[12px] text-muted-foreground hover:bg-worktree-sidebar-accent"
+                >
+                  <ChevronRight
+                    className={cn(
+                      'size-3.5 shrink-0 transition-transform',
+                      expanded.has(key) && 'rotate-90'
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                  <span className="text-2xs tabular-nums">{group.sessions.length}</span>
+                </button>
+                {expanded.has(key) ? (
+                  <div className="pl-4">
+                    <PastChatRows
+                      sessions={group.sessions}
+                      worktreeId={null}
+                      inactiveIds={view.inactive}
+                    />
+                  </div>
+                ) : null}
+              </div>
             ))
           )}
         </div>
@@ -259,7 +148,7 @@ export function PastChatsSection(): React.JSX.Element | null {
         onOpenChange={setDialogOpen}
         cwds={cwds}
         knownPaths={knownPaths}
-        onAdded={() => void load(false)}
+        onAdded={() => void reloadPastChats()}
       />
     </div>
   )

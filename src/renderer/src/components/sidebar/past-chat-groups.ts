@@ -74,3 +74,43 @@ export function groupPastChats(
       Number(b.isProject) - Number(a.isProject) || recency(b.sessions[0]) - recency(a.sessions[0])
   )
 }
+
+export type PastChatAssignment = {
+  byWorktree: Map<string, AiVaultSession[]>
+  /** Chats outside every project folder. */
+  others: AiVaultSession[]
+}
+
+/** Each chat goes to the workspace whose folder holds it (deepest match); a repo-root chat goes to its first workspace. */
+export function assignPastChatsToWorktrees(
+  sessions: readonly AiVaultSession[],
+  repos: readonly Repo[],
+  worktreesByRepo: Readonly<Record<string, readonly Worktree[] | undefined>>
+): PastChatAssignment {
+  const roots: { worktreeId: string; path: string }[] = []
+  for (const repo of repos) {
+    const worktrees = (worktreesByRepo[repo.id] ?? []).filter((w) => !w.isArchived)
+    for (const worktree of worktrees) {
+      roots.push({ worktreeId: worktree.id, path: normalizePath(worktree.path) })
+    }
+    if (worktrees[0]) {
+      roots.push({ worktreeId: worktrees[0].id, path: normalizePath(repo.path) })
+    }
+  }
+  roots.sort((a, b) => b.path.length - a.path.length)
+  const byWorktree = new Map<string, AiVaultSession[]>()
+  const others: AiVaultSession[] = []
+  const recency = (s: AiVaultSession): number => Date.parse(s.updatedAt ?? s.modifiedAt) || 0
+  for (const session of [...sessions].sort((a, b) => recency(b) - recency(a))) {
+    const cwd = session.cwd ? normalizePath(session.cwd) : null
+    const match = cwd ? roots.find((r) => inside(cwd, r.path)) : undefined
+    if (!match) {
+      others.push(session)
+      continue
+    }
+    const list = byWorktree.get(match.worktreeId) ?? []
+    list.push(session)
+    byWorktree.set(match.worktreeId, list)
+  }
+  return { byWorktree, others }
+}
