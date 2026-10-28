@@ -1,0 +1,70 @@
+name: Build Windows installer
+
+# Orca Sessions: GitHub's Windows runner has the C++ build tools, so the installer is compiled here and nothing needs
+# to be installed on the user's PC. Download "orca-sessions-windows" from the run's artifacts and double-click it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-windows
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            mobile/pnpm-lock.yaml
+
+      - name: Cache electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-builder-win-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: electron-builder-win-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: ./.github/actions/install-mobile-dependencies
+
+      - name: Typecheck
+        run: pnpm tc
+
+      - name: Build app
+        shell: bash
+        run: pnpm build:release
+
+      - name: Package installer
+        run: |
+          node config/scripts/ensure-native-runtime.mjs --runtime=electron
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm exec electron-builder --config config/electron-builder.config.cjs --win --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orca-sessions-windows
+          path: dist/orca-windows-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
