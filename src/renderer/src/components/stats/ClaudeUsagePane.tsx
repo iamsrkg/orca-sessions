@@ -11,6 +11,7 @@ import {
 import type { ClaudeUsageRange, ClaudeUsageScope } from '../../../../shared/claude-usage-types'
 import { useAppStore } from '../../store'
 import { ClaudeUsageDetails } from './ClaudeUsageDetails'
+import { ClaudeWorkTrends } from './ClaudeWorkTrends'
 import { ClaudeUsageLoadingState } from './ClaudeUsageLoadingState'
 import { ShareUsageButton } from './ShareUsageButton'
 import { StatCard } from './StatCard'
@@ -238,6 +239,8 @@ export function ClaudeUsagePane(): React.JSX.Element {
             'Cache reuse rate is calculated as cache read tokens / (input tokens + cache read tokens).'
           )}
         </p>
+
+        <ClaudeWorkTrends />
 
         <ClaudeUsageDetails
           daily={daily}

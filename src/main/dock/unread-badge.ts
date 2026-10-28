@@ -1,8 +1,13 @@
 import { app } from 'electron'
+import { applyWindowsTaskbarBadge } from './windows-taskbar-badge'
 
 let unreadCount = 0
 
 function applyDockBadge(): void {
+  if (process.platform === 'win32') {
+    applyWindowsTaskbarBadge(unreadCount)
+    return
+  }
   if (process.platform !== 'darwin') {
     return
   }
@@ -12,7 +17,7 @@ function applyDockBadge(): void {
 }
 
 export function setUnreadDockBadgeCount(count: number): void {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
     return
   }
 

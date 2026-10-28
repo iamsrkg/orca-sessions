@@ -25,6 +25,7 @@ import { registerStatsHandlers } from '../stats'
 import { registerClaudeSessionNumbersHandlers } from '../claude-session-numbers'
 import { registerMemoryHandlers } from '../memory'
 import { registerRateLimitHandlers } from '../rate-limits'
+import { installUsageLimitAlerts } from '../../rate-limits/usage-limit-alerts'
 import { registerRuntimeHandlers } from '../runtime'
 import {
   invalidateRuntimeEnvironmentTransport,
@@ -194,6 +195,7 @@ export function registerCoreHandlers(
   registerGrokAccountHandlers()
   registerCursorAccountHandlers()
   registerRateLimitHandlers(rateLimits, codexAccounts)
+  installUsageLimitAlerts(rateLimits)
   registerGitHubHandlers(store, stats)
   registerGitLabHandlers(store)
   registerHostedReviewHandlers(store, stats)

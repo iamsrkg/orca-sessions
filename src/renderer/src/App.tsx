@@ -13,6 +13,7 @@ import RunningTerminalCloseDialog from './components/terminal-pane/RunningTermin
 import WorktreeBaseFallbackDialog from './components/WorktreeBaseFallbackDialog'
 import ClaudeAccountSwitchDialog from './components/ClaudeAccountSwitchDialog'
 import { useUnreadDockBadge } from './hooks/useUnreadDockBadge'
+import { useSameFileEditWarnings } from './hooks/useSameFileEditWarnings'
 import { AppBackgroundServices } from './app-shell/AppBackgroundServices'
 import { AppRootSurfaces } from './app-shell/AppRootSurfaces'
 import { AppWorkspaceShell } from './app-shell/AppWorkspaceShell'
@@ -45,6 +46,7 @@ function App(): React.JSX.Element {
   const floatingWorkspace = useFloatingWorkspacePanel()
   const onboardingGate = useOnboardingAndFeatureTips()
   const clearUnreadDockBadge = useUnreadDockBadge(floatingWorkspace.open)
+  useSameFileEditWarnings()
 
   useAppShellServices()
   // Load drafts before the startup chain so no failed step can skip them.
