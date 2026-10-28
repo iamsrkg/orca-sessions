@@ -1,6 +1,7 @@
 import type { AiVaultScope } from '../../../../shared/ai-vault-types'
 
-export const DEFAULT_AI_VAULT_SCOPE: AiVaultScope = 'workspace'
+// Orca Sessions: open on every chat; Workspace and Project stay one click away.
+export const DEFAULT_AI_VAULT_SCOPE: AiVaultScope = 'all'
 
 export function normalizeAiVaultScopeForContext(args: {
   scope: AiVaultScope
