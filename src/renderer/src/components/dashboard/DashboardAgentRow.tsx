@@ -1,3 +1,4 @@
+import { AgentSessionNumbersLine } from '../sidebar/AgentSessionNumbersLine'
 import React, { useState, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { viewClaudeAgentFromRow } from '@/lib/claude-agent-row-view'
@@ -360,6 +361,7 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
         stoppedByUser={agentMainAgentVerdict(agent.entry) === 'cancellation'}
         lastAssistantMessage={lastAssistantMessage}
       />
+      {agent.rowSource !== 'subagent' ? <AgentSessionNumbersLine entry={agent.entry} /> : null}
     </div>
   )
 })

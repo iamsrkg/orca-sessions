@@ -22,6 +22,7 @@ import { registerFeedbackHandlers } from '../feedback'
 import { registerCrashReportingHandlers } from '../crash-reporting'
 import { registerExportHandlers } from '../export'
 import { registerStatsHandlers } from '../stats'
+import { registerClaudeSessionNumbersHandlers } from '../claude-session-numbers'
 import { registerMemoryHandlers } from '../memory'
 import { registerRateLimitHandlers } from '../rate-limits'
 import { registerRuntimeHandlers } from '../runtime'
@@ -206,6 +207,7 @@ export function registerCoreHandlers(
   }
   registerExportHandlers()
   registerStatsHandlers(stats)
+  registerClaudeSessionNumbersHandlers()
   registerMemoryHandlers(store)
   registerNotificationHandlers(store, runtime)
   registerNotebookHandlers(store)

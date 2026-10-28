@@ -1,3 +1,4 @@
+import { AgentSessionNumbersLine } from './AgentSessionNumbersLine'
 import React, { useCallback, useEffect, useRef } from 'react'
 import { DashboardAgentChildDisclosure } from '@/components/dashboard/DashboardAgentChildDisclosure'
 import { AgentStateDot, agentStateLabel } from '@/components/AgentStateDot'
@@ -284,33 +285,38 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
   )
 
   return (
-    <div
-      draggable={false}
-      className={cn(
-        'compact-agent-row agent-disclosure-row group/compact-agent-row min-w-0 cursor-pointer rounded-sm px-1 text-[11px] leading-none',
-        'text-muted-foreground worktree-agent-row-hover',
-        hasChildDisclosure && 'worktree-agent-lineage-parent-row',
-        isLineageChild && 'worktree-agent-lineage-child-row',
-        'flex h-6 items-center gap-1',
-        highlighted && 'bg-worktree-sidebar-accent',
-        sendTargetStatus === 'sending' && 'cursor-progress opacity-75',
-        sendTargetStatus === 'disabled' && 'cursor-default opacity-60'
-      )}
-      onClickCapture={handleSendTargetClickCapture}
-      onClick={handleActivate}
-      onMouseDown={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onDragStart={(e) => e.stopPropagation()}
-      data-focused-agent-pane={highlighted ? 'true' : undefined}
-      data-current={view?.current ? 'true' : undefined}
-      aria-current={view?.current ? 'true' : undefined}
-      data-agent-send-target={sendTargetStatus}
-      role={agent.lineage ? 'treeitem' : undefined}
-      aria-level={agent.lineage ? agent.lineage.depth + 1 : undefined}
-      aria-expanded={hasChildDisclosure ? childAgentsExpanded : undefined}
-      title={sendTargetDisabledReason}
-    >
-      {rowBody}
-    </div>
+    <>
+      <div
+        draggable={false}
+        className={cn(
+          'compact-agent-row agent-disclosure-row group/compact-agent-row min-w-0 cursor-pointer rounded-sm px-1 text-[11px] leading-none',
+          'text-muted-foreground worktree-agent-row-hover',
+          hasChildDisclosure && 'worktree-agent-lineage-parent-row',
+          isLineageChild && 'worktree-agent-lineage-child-row',
+          'flex h-6 items-center gap-1',
+          highlighted && 'bg-worktree-sidebar-accent',
+          sendTargetStatus === 'sending' && 'cursor-progress opacity-75',
+          sendTargetStatus === 'disabled' && 'cursor-default opacity-60'
+        )}
+        onClickCapture={handleSendTargetClickCapture}
+        onClick={handleActivate}
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => e.stopPropagation()}
+        data-focused-agent-pane={highlighted ? 'true' : undefined}
+        data-current={view?.current ? 'true' : undefined}
+        aria-current={view?.current ? 'true' : undefined}
+        data-agent-send-target={sendTargetStatus}
+        role={agent.lineage ? 'treeitem' : undefined}
+        aria-level={agent.lineage ? agent.lineage.depth + 1 : undefined}
+        aria-expanded={hasChildDisclosure ? childAgentsExpanded : undefined}
+        title={sendTargetDisabledReason}
+      >
+        {rowBody}
+      </div>
+      {agent.rowSource !== 'subagent' ? (
+        <AgentSessionNumbersLine entry={agent.entry} className="pb-0.5 pl-6" />
+      ) : null}
+    </>
   )
 })

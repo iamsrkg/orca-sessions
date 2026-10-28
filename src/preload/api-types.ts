@@ -1,3 +1,4 @@
+import type { ClaudeSessionNumbers } from '../shared/claude-session-numbers'
 import type {
   ClaudeAccountsApi,
   CodexAccountsApi,
@@ -133,6 +134,9 @@ export type PreloadApi = {
   stats: StatsApi
   memory: MemoryApi
   claudeUsage: ClaudeUsageApi
+  claudeSessionNumbers: {
+    get: (transcriptPaths: string[]) => Promise<Record<string, ClaudeSessionNumbers>>
+  }
   codexUsage: CodexUsageApi
   openCodeUsage: OpenCodeUsageApi
   museUsage: MuseUsageApi

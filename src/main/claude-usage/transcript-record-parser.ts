@@ -101,7 +101,7 @@ function mayEncodeAssistantType(line: string): boolean {
   return line.includes('assistant')
 }
 
-function parseClaudeUsageSourceRecord(
+export function parseClaudeUsageSourceRecord(
   line: string,
   fallbackSessionId: string | null = null
 ): ClaudeUsageParsedSourceTurn | null {
