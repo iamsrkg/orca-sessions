@@ -143,6 +143,9 @@ export type PreloadApi = {
   repoHealth: {
     get: (path: string, force?: boolean) => Promise<RepoHealth | null>
     setWatch: (url: string, on: boolean) => Promise<boolean>
+    historyProjectFolders: (
+      cwds: string[]
+    ) => Promise<{ path: string; kind: 'git' | 'folder'; cwds: string[] }[]>
   }
   codexUsage: CodexUsageApi
   openCodeUsage: OpenCodeUsageApi

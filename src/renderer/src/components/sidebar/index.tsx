@@ -1,3 +1,4 @@
+import { PastChatsSection } from './PastChatsSection'
 import React, { useEffect, useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -205,6 +206,7 @@ function Sidebar({
                   onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
                 />
                 <WslMovedProjectsSection />
+                <PastChatsSection />
               </>
             )}
 

@@ -24,6 +24,7 @@ import { registerExportHandlers } from '../export'
 import { registerStatsHandlers } from '../stats'
 import { registerClaudeSessionNumbersHandlers } from '../claude-session-numbers'
 import { registerRepoHealthHandlers } from '../repo-health'
+import { registerHistoryProjectFolderHandlers } from '../history-project-folders'
 import { registerMemoryHandlers } from '../memory'
 import { registerRateLimitHandlers } from '../rate-limits'
 import { installUsageLimitAlerts } from '../../rate-limits/usage-limit-alerts'
@@ -212,6 +213,7 @@ export function registerCoreHandlers(
   registerStatsHandlers(stats)
   registerClaudeSessionNumbersHandlers()
   registerRepoHealthHandlers()
+  registerHistoryProjectFolderHandlers()
   registerMemoryHandlers(store)
   registerNotificationHandlers(store, runtime)
   registerNotebookHandlers(store)
