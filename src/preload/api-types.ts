@@ -1,5 +1,6 @@
 import type { ClaudeSessionNumbers } from '../shared/claude-session-numbers'
 import type { ClaudeWorkTrendDay } from '../shared/claude-work-trends'
+import type { RepoHealth } from '../shared/repo-health-types'
 import type {
   ClaudeAccountsApi,
   CodexAccountsApi,
@@ -138,6 +139,10 @@ export type PreloadApi = {
   claudeSessionNumbers: {
     get: (transcriptPaths: string[]) => Promise<Record<string, ClaudeSessionNumbers>>
     trends: () => Promise<ClaudeWorkTrendDay[]>
+  }
+  repoHealth: {
+    get: (path: string, force?: boolean) => Promise<RepoHealth | null>
+    setWatch: (url: string, on: boolean) => Promise<boolean>
   }
   codexUsage: CodexUsageApi
   openCodeUsage: OpenCodeUsageApi
