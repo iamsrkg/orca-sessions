@@ -31,37 +31,52 @@ async function readAppended(path: string, state: FileState): Promise<void> {
   }
   const handle = await open(path, 'r')
   try {
-    const buffer = Buffer.alloc(info.size - state.offset)
-    await handle.read(buffer, 0, buffer.length, state.offset)
-    const end = buffer.lastIndexOf(10) + 1
-    state.offset += end
-    const fallbackSessionId = basename(path, '.jsonl')
-    for (const line of buffer.subarray(0, end).toString('utf8').split('\n')) {
-      const match = TIMESTAMP_PATTERN.exec(line)
-      const time = match ? Date.parse(match[1]) : Number.NaN
-      if (Number.isFinite(time)) {
-        if (time < (state.times.at(-1) ?? 0)) {
-          state.sorted = false
+    // 4 MB chunks with an event-loop yield between them, so a large chat never freezes the app.
+    while (state.offset < info.size) {
+      const length = Math.min(4 * 1024 * 1024, info.size - state.offset)
+      const buffer = Buffer.alloc(length)
+      await handle.read(buffer, 0, length, state.offset)
+      let end = buffer.lastIndexOf(10) + 1
+      if (end === 0) {
+        if (length < 4 * 1024 * 1024) {
+          break // a half-written last line waits for the next read
         }
-        state.times.push(time)
+        end = length // a single line longer than a chunk: skip it rather than stall
       }
-      const turn = parseClaudeUsageSourceRecord(line, fallbackSessionId)
-      if (!turn) {
-        continue
-      }
-      const cost =
-        estimateCostUsd(turn.model, {
-          ...turn,
-          longContext: longContextTurnTokens(turn.model, turn)
-        }) ?? 0
-      const key = turn.dedupeKey ?? `${path}:${state.costs.size}`
-      const previous = state.costs.get(key)
-      if (!previous || cost > previous.cost) {
-        state.costs.set(key, { cost, day: dayKey(Date.parse(turn.timestamp) || time) })
-      }
+      state.offset += end
+      applyTrendLines(path, state, buffer.subarray(0, end).toString('utf8').split('\n'))
+      await new Promise<void>((resolve) => setImmediate(resolve))
     }
   } finally {
     await handle.close()
+  }
+}
+
+function applyTrendLines(path: string, state: FileState, lines: string[]): void {
+  const fallbackSessionId = basename(path, '.jsonl')
+  for (const line of lines) {
+    const match = TIMESTAMP_PATTERN.exec(line)
+    const time = match ? Date.parse(match[1]) : Number.NaN
+    if (Number.isFinite(time)) {
+      if (time < (state.times.at(-1) ?? 0)) {
+        state.sorted = false
+      }
+      state.times.push(time)
+    }
+    const turn = parseClaudeUsageSourceRecord(line, fallbackSessionId)
+    if (!turn) {
+      continue
+    }
+    const cost =
+      estimateCostUsd(turn.model, {
+        ...turn,
+        longContext: longContextTurnTokens(turn.model, turn)
+      }) ?? 0
+    const key = turn.dedupeKey ?? `${path}:${state.costs.size}`
+    const previous = state.costs.get(key)
+    if (!previous || cost > previous.cost) {
+      state.costs.set(key, { cost, day: dayKey(Date.parse(turn.timestamp) || time) })
+    }
   }
 }
 

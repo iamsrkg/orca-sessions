@@ -1,4 +1,4 @@
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
+import { readdir, open, stat } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
 import {
   CLAUDE_SESSION_WORK_GAP_MS,
@@ -16,7 +16,10 @@ type TranscriptState = {
 }
 
 const states = new Map<string, TranscriptState>()
-const MAX_TRACKED_TRANSCRIPTS = 200
+const MAX_TRACKED_TRANSCRIPTS = 600
+const CHUNK_BYTES = 4 * 1024 * 1024
+const inFlight = new Map<string, Promise<TranscriptState>>()
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 const TIMESTAMP_PATTERN = /"timestamp":"([^"]+)"/
 
 /** 1M-token windows for current Opus/Sonnet 5 and Fable/Mythos models, 200k otherwise. */
@@ -32,57 +35,26 @@ function isClaudeTranscriptPath(path: string): boolean {
 }
 
 // Subagent transcripts live in <session>/subagents/*.jsonl; their work fills the main chat's wait.
-function transcriptFiles(file: string): string[] {
+async function transcriptFiles(file: string): Promise<string[]> {
   const out = [file]
-  const walk = (dir: string): void => {
+  const walk = async (dir: string): Promise<void> => {
     let entries
     try {
-      entries = readdirSync(dir, { withFileTypes: true })
+      entries = await readdir(dir, { withFileTypes: true })
     } catch {
       return
     }
     for (const entry of entries) {
       const child = join(dir, entry.name)
       if (entry.isDirectory()) {
-        walk(child)
+        await walk(child)
       } else if (child.endsWith('.jsonl')) {
         out.push(child)
       }
     }
   }
-  walk(file.slice(0, -'.jsonl'.length))
+  await walk(file.slice(0, -'.jsonl'.length))
   return out
-}
-
-// Complete lines appended since `offset`; a half-written last line waits for the next read.
-function readNewLines(
-  file: string,
-  offset: number
-): { lines: string[]; offset: number } | 'reset' | null {
-  let size: number
-  try {
-    size = statSync(file).size
-  } catch {
-    return null
-  }
-  if (size < offset) {
-    return 'reset'
-  }
-  if (size === offset) {
-    return { lines: [], offset }
-  }
-  const fd = openSync(file, 'r')
-  try {
-    const buffer = Buffer.alloc(size - offset)
-    readSync(fd, buffer, 0, buffer.length, offset)
-    const end = buffer.lastIndexOf(10) + 1
-    return {
-      lines: buffer.subarray(0, end).toString('utf8').split('\n'),
-      offset: offset + end
-    }
-  } finally {
-    closeSync(fd)
-  }
 }
 
 function freshState(): TranscriptState {
@@ -95,51 +67,91 @@ function freshState(): TranscriptState {
   }
 }
 
-function readTranscript(file: string): TranscriptState {
+function applyLines(
+  state: TranscriptState,
+  part: string,
+  isMain: boolean,
+  lines: string[]
+): boolean {
+  let unordered = false
+  const fallbackSessionId = basename(part, '.jsonl')
+  for (const line of lines) {
+    const match = TIMESTAMP_PATTERN.exec(line)
+    const time = match ? Date.parse(match[1]) : Number.NaN
+    if (Number.isFinite(time)) {
+      if (time < (state.times.at(-1) ?? 0)) {
+        unordered = true
+      }
+      state.times.push(time)
+    }
+    const turn = parseClaudeUsageSourceRecord(line, fallbackSessionId)
+    if (!turn) {
+      continue
+    }
+    const cost =
+      estimateCostUsd(turn.model, {
+        ...turn,
+        longContext: longContextTurnTokens(turn.model, turn)
+      }) ?? 0
+    // One API reply is saved as several lines with the same usage; streaming rows can grow, so keep the largest.
+    const key = turn.dedupeKey ?? `${part}:${state.costByKey.size}`
+    state.costByKey.set(key, Math.max(state.costByKey.get(key) ?? 0, cost))
+    if (isMain && !line.includes('"isSidechain":true')) {
+      state.contextTokens =
+        turn.inputTokens + turn.cacheReadTokens + turn.cacheWriteTokens + turn.outputTokens
+      state.contextModel = turn.model
+    }
+  }
+  return unordered
+}
+
+// Reads only bytes appended since the last call, in chunks with event-loop yields, so big chats never freeze the app.
+async function readTranscript(file: string): Promise<TranscriptState> {
   let state = states.get(file) ?? freshState()
   let unordered = false
-  for (const part of transcriptFiles(file)) {
-    const read = readNewLines(part, state.offsets.get(part) ?? 0)
-    if (read === 'reset') {
+  for (const part of await transcriptFiles(file)) {
+    let size: number
+    try {
+      size = (await stat(part)).size
+    } catch {
+      continue
+    }
+    let offset = state.offsets.get(part) ?? 0
+    if (size < offset) {
       // A rewritten transcript starts over from the beginning.
       state = freshState()
       states.set(file, state)
       return readTranscript(file)
     }
-    if (!read || read.lines.length === 0) {
+    if (size === offset) {
       continue
     }
-    state.offsets.set(part, read.offset)
-    const isMain = part === file
-    const fallbackSessionId = basename(part, '.jsonl')
-    for (const line of read.lines) {
-      const match = TIMESTAMP_PATTERN.exec(line)
-      const time = match ? Date.parse(match[1]) : Number.NaN
-      if (Number.isFinite(time)) {
-        const last = state.times.at(-1) ?? 0
-        if (time < last) {
+    const handle = await open(part, 'r')
+    try {
+      let carry = Buffer.alloc(0)
+      while (offset + carry.length < size) {
+        const length = Math.min(CHUNK_BYTES, size - offset - carry.length)
+        const chunk = Buffer.alloc(length)
+        await handle.read(chunk, 0, length, offset + carry.length)
+        const data = Buffer.concat([carry, chunk])
+        const end = data.lastIndexOf(10) + 1
+        if (end === 0) {
+          carry = data
+          continue
+        }
+        const lines = data.subarray(0, end).toString('utf8').split('\n')
+        if (applyLines(state, part, part === file, lines)) {
           unordered = true
         }
-        state.times.push(time)
+        offset += end
+        carry = data.subarray(end)
+        await yieldToEventLoop()
       }
-      const turn = parseClaudeUsageSourceRecord(line, fallbackSessionId)
-      if (!turn) {
-        continue
-      }
-      const cost =
-        estimateCostUsd(turn.model, {
-          ...turn,
-          longContext: longContextTurnTokens(turn.model, turn)
-        }) ?? 0
-      // One API reply is saved as several lines with the same usage; streaming rows can grow, so keep the largest.
-      const key = turn.dedupeKey ?? `${part}:${state.costByKey.size}`
-      state.costByKey.set(key, Math.max(state.costByKey.get(key) ?? 0, cost))
-      if (isMain && !line.includes('"isSidechain":true')) {
-        state.contextTokens =
-          turn.inputTokens + turn.cacheReadTokens + turn.cacheWriteTokens + turn.outputTokens
-        state.contextModel = turn.model
-      }
+    } finally {
+      await handle.close()
     }
+    // A half-written last line waits for the next read.
+    state.offsets.set(part, offset)
   }
   if (unordered) {
     state.times.sort((a, b) => a - b)
@@ -156,11 +168,19 @@ function readTranscript(file: string): TranscriptState {
   return state
 }
 
-export function claudeSessionNumbers(transcriptPath: string): ClaudeSessionNumbers | null {
+export async function claudeSessionNumbers(
+  transcriptPath: string
+): Promise<ClaudeSessionNumbers | null> {
   if (!isClaudeTranscriptPath(transcriptPath)) {
     return null
   }
-  const state = readTranscript(transcriptPath)
+  // Concurrent callers of one file share a read, so offsets never advance twice.
+  let reading = inFlight.get(transcriptPath)
+  if (!reading) {
+    reading = readTranscript(transcriptPath).finally(() => inFlight.delete(transcriptPath))
+    inFlight.set(transcriptPath, reading)
+  }
+  const state = await reading
   let workingMs = 0
   for (let i = 1; i < state.times.length; i++) {
     const gap = state.times[i] - state.times[i - 1]

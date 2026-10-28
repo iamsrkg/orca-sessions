@@ -14,7 +14,12 @@ async function refresh(): Promise<void> {
   }
   inFlight = true
   try {
-    const result = await window.api.claudeSessionNumbers.get([...subscriberCounts.keys()])
+    const paths = [...subscriberCounts.keys()]
+    const result: Record<string, ClaudeSessionNumbers> = {}
+    // The main process answers at most 64 paths per call.
+    for (let i = 0; i < paths.length; i += 64) {
+      Object.assign(result, await window.api.claudeSessionNumbers.get(paths.slice(i, i + 64)))
+    }
     let changed = false
     for (const [path, numbers] of Object.entries(result)) {
       const previous = numbersByPath.get(path)

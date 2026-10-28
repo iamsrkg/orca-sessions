@@ -20,7 +20,7 @@ export function registerClaudeSessionNumbersHandlers(): void {
   })
   ipcMain.handle(
     'claudeSessionNumbers:get',
-    (_event, transcriptPaths: unknown): Record<string, ClaudeSessionNumbers> => {
+    async (_event, transcriptPaths: unknown): Promise<Record<string, ClaudeSessionNumbers>> => {
       const out: Record<string, ClaudeSessionNumbers> = {}
       if (!Array.isArray(transcriptPaths)) {
         return out
@@ -29,7 +29,7 @@ export function registerClaudeSessionNumbersHandlers(): void {
         if (typeof path !== 'string') {
           continue
         }
-        const numbers = claudeSessionNumbers(path)
+        const numbers = await claudeSessionNumbers(path)
         if (numbers) {
           out[path] = numbers
         }
